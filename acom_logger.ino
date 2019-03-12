@@ -7,12 +7,13 @@
 
 
 #define BUFFER_SIZE 256
-#define DBG DBGSerial.write
-#define DBG2 DBGSerial.write
-#define DBG3 DBGSerial.write
-#define INIT DBGSerial.write
+//#define DBG DBGSerial.write
+//#define DBG2 DBGSerial.write
+//#define DBG3 DBGSerial.write
+//#define INIT DBGSerial.write
 #define DBG //
 #define DBG2 DBG
+#define DBG3 DBG
 #define INIT //
 
 RTC_PCF8523 rtc;
@@ -23,6 +24,7 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 const int chipSelect = 10;
 char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
+unsigned long timesent;
 bool  startfound , crfound;  
 DateTime logtimestamp; 
 File dataFile;
@@ -65,6 +67,8 @@ void setup() {
     return;
   }
   INIT ("card initialized.");
+
+  timesent = millis();
  
   
 }
@@ -73,6 +77,8 @@ void loop() {
  
   
   CheckSerial();
+
+  SendMessage();
   return;
 
   
@@ -98,6 +104,20 @@ void Test()
   
 }
 */
+
+void SendMessage()
+{
+  
+   if (millis() - timesent >= 10000)
+   {
+    Serial.println(F("$CCCYC,0,1,0,4,0,1"));
+    timesent = millis();
+   }
+  
+}
+
+
+
 void PrintBuffer()
 {
    DBG2 (serialbuffer);
@@ -130,7 +150,61 @@ void CheckSerial()
     {
 //    inchar = Serial.read();
    //DBG (inchar);
-       switch(inchar)
+      switch(inchar)
+         {
+         case '$' :  
+                     if (startfound)
+                     {
+                      //incomplete previous message already in buffer
+                      intobuffer("\n");
+                      LogBuffer(logtimestamp, true);
+                      ResetBuffer();
+                      startfound = false;
+                     }
+                      
+                     startfound = true;
+                     logtimestamp = rtc.now();
+                     intobuffer(inchar);
+                     break;
+         
+         
+         case '\r':
+                  if (startfound)
+                    crfound = true;
+                    intobuffer(inchar);
+                    break;
+           
+        case '\n':
+                    if (startfound && crfound)
+                    {
+                      intobuffer(inchar);
+                      LogBuffer(logtimestamp, true);
+                      ResetBuffer();
+                    }
+                      startfound = false;
+                      crfound = false;
+                      
+                      break; 
+         default:
+                    intobuffer(inchar);
+                  
+         }
+     
+  }
+}
+
+
+/*
+void CheckSerialIf()
+{
+
+  char inchar;
+  inchar = Serial.read();
+  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
+      
+    {
+
+      switch(inchar)
          {
          case '$' :  
                      if (startfound)
@@ -154,7 +228,7 @@ void CheckSerial()
                     intobuffer(inchar);
                     break;
            
-         case '\n':
+        case '\n':
                     if (startfound && crfound)
                     {
                       intobuffer(inchar);
@@ -172,11 +246,17 @@ void CheckSerial()
      
   }
 }
+*/
 
 void intobuffer( char _inchar)
 {
         if (bufferposition >= BUFFER_SIZE)
         {
+         if (serialbuffer[0] == '$')
+            LogBuffer(logtimestamp, true);
+         LogBuffer(logtimestamp, false);
+         
+         
         //overflow
          bufferposition = 0;
           }
@@ -193,7 +273,7 @@ void Resetbuffer()
   crfound = false;  
 }
 
-void LogBuffer(DateTime _timestamp)
+void LogBuffer(DateTime _timestamp, bool withstamp)
 {
   
   int i;
@@ -205,22 +285,24 @@ void LogBuffer(DateTime _timestamp)
     return;
   }
 
-  String timestamp = "";
-
-  timestamp += _timestamp.year(); 
-  timestamp += zeropad(_timestamp.month()) ;
-  timestamp += zeropad(_timestamp.day());
-  timestamp += "-";
-  timestamp += zeropad(_timestamp.hour());
-  timestamp += ":";
-  timestamp += zeropad(_timestamp.minute());
-  timestamp += ":";
-  timestamp += zeropad(_timestamp.second());
-  timestamp += ",";
-  timestamp += _timestamp.unixtime();
-  timestamp += ",";
-  dataFile.print(timestamp);
+  if (withstamp)
+  {
+    String timestamp = "";
   
+    timestamp += _timestamp.year(); 
+    timestamp += zeropad(_timestamp.month()) ;
+    timestamp += zeropad(_timestamp.day());
+    timestamp += "-";
+    timestamp += zeropad(_timestamp.hour());
+    timestamp += ":";
+    timestamp += zeropad(_timestamp.minute());
+    timestamp += ":";
+    timestamp += zeropad(_timestamp.second());
+    timestamp += ",";
+    timestamp += _timestamp.unixtime();
+    timestamp += ",";
+    dataFile.print(timestamp);
+  }  
 
   for (i = 0; i < bufferposition; i++)
   {
