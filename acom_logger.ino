@@ -233,8 +233,7 @@ void CheckCommand()
   const static char c3[] PROGMEM = "$CCMUC,0,1,2222";
   const static char c4[] PROGMEM = "$CCMUC,0,1,3333";
   const static char c5[] PROGMEM = "$CCMUC,0,1,4444";
- // if (strstr(serialbuffer, s1))
-    if(bufferposition < 25)
+ if (strstr(serialbuffer, s1) && (bufferposition < 25))
     {
       if (strstr(serialbuffer,c1))
       {
@@ -243,13 +242,13 @@ void CheckCommand()
         sequence_step = SEQUENCE_FIRST_STEP; 
       }
       else if (strstr(serialbuffer,c2))
-      do_send_sequence = false;
+        do_send_sequence = false;
       else if (strstr(serialbuffer,c3))
-      SetBandwidth(1);
+        SetBandwidth(1);
       else if (strstr(serialbuffer,c4))
-      SetBandwidth(2);
+        SetBandwidth(2);
       else if (strstr(serialbuffer,c5))
-      SetBandwidth(3);
+        SetBandwidth(3);
             
       /*
       sscanf (serialbuffer, "$CCMUC,0,1,%d*%d\n", &command,&chks);
