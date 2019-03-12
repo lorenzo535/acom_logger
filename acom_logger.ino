@@ -275,51 +275,6 @@ void SetBandwidth(unsigned short _bw)
   }
 }
 
-void CheckSerialIf()
-{
-
-  char inchar;
-  inchar = Serial.read();
-  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
-      
-  {
-    if (inchar == '$')
-
-      {  
-          /*           if (startfound)
-                     {
-                      //incomplete previous message already in buffer
-                      intobuffer("\n");
-                      LogBuffer(logtimestamp, true);
-                      ResetBuffer();
-                      startfound = false;
-                     }
-             */         
-                     startfound = true;
-                     logtimestamp = rtc.now();
-                //     intobuffer(inchar);
-      }
-  /*    else if (inchar == '\r')
-      {
-                  if (startfound)
-                    crfound = true;
-        //            intobuffer(inchar);
-      }*/
-      else if (inchar =='\n')
-      {
-                    if (startfound && crfound)
-                    //{
-          //           intobuffer(inchar);
-           //           LogBuffer(logtimestamp,true);
-          //            ResetBuffer();
-                    //}
-                      startfound = false;
-                      crfound = false;
-                      
-       }
-     
-  }
-}
 
 
 void intobuffer( char _inchar)
