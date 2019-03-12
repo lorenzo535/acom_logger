@@ -7,20 +7,26 @@
 
 
 #define BUFFER_SIZE 256
-//#define DBG DBGSerial.write
+#define DBG DBGSerial.write
 #define DBG2 DBGSerial.write
+#define DBG3 DBGSerial.write
+#define INIT DBGSerial.write
 #define DBG //
+#define DBG2 DBG
+#define INIT //
 
 RTC_PCF8523 rtc;
-//char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+
 char filename []={"03111508.csv"};
 SoftwareSerial DBGSerial(2, 3); // RX, TX
+
 const int chipSelect = 10;
 char serialbuffer[BUFFER_SIZE];
-unsigned int bufferposition;
+unsigned int bufferposition,oldbufferpos;
 bool  startfound , crfound;  
 DateTime logtimestamp; 
 File dataFile;
+
 
 void setup() {
   bufferposition = 0;
@@ -30,7 +36,7 @@ void setup() {
 
   DBGSerial.begin(4800);
 
-  Serial.begin(19200);
+  Serial.begin(9600);
 
    if (! rtc.begin()) {
     DBG ("Couldn't find RTC\n");
@@ -50,7 +56,7 @@ void setup() {
   }
 
   CreateFilename();
-  DBG ("Initializing SD card...");
+  INIT ("Initializing SD card...");
 
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
@@ -58,19 +64,210 @@ void setup() {
     // don't do anything more:
     return;
   }
-  DBG ("card initialized.");
+  INIT ("card initialized.");
+ 
   
 }
 
 void loop() {
+ 
   
-
   CheckSerial();
+  return;
 
- // RTCTestAndLog();
- // delay(1000);
+  
+  //Test();
+    
+  if (bufferposition > BUFFER_SIZE -1)
+          PrintBuffer();
+          
+   // RTCTestAndLog();
+   // delay(1000);
 
 }
+
+/*
+void Test()
+{
+ char  inchar = Serial.read();
+  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
+    {
+    intobuffer(inchar);
+   
+    }
+  
+}
+*/
+void PrintBuffer()
+{
+   DBG2 (serialbuffer);
+   ResetBuffer();
+   
+}
+
+
+String zeropad(int input)
+{
+  String output;
+  if (input < 10)
+    output = "0" + String(input);
+    else
+    output = input;
+    
+ return output;
+}
+
+
+void CheckSerial()
+{
+
+  char inchar;
+  inchar = Serial.read();
+  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
+     
+    //keep reading and printing from serial untill there are bytes in the serial buffer
+ //    while (Serial.available()>0)
+    {
+//    inchar = Serial.read();
+   //DBG (inchar);
+       switch(inchar)
+         {
+         case '$' :  
+                     if (startfound)
+                     {
+                      //incomplete previous message already in buffer
+                      intobuffer("\n");
+                      LogBuffer(logtimestamp);
+                      ResetBuffer();
+                      startfound = false;
+                     }
+                      
+                     startfound = true;
+                     logtimestamp = rtc.now();
+                     intobuffer(inchar);
+                     break;
+         
+         
+         case '\r':
+                  if (startfound)
+                    crfound = true;
+                    intobuffer(inchar);
+                    break;
+           
+         case '\n':
+                    if (startfound && crfound)
+                    {
+                      intobuffer(inchar);
+                      LogBuffer(logtimestamp);
+                      ResetBuffer();
+                    }
+                      startfound = false;
+                      crfound = false;
+                      
+                      break; 
+         default:
+                    intobuffer(inchar);
+                  
+         }
+     
+  }
+}
+
+void intobuffer( char _inchar)
+{
+        if (bufferposition >= BUFFER_SIZE)
+        {
+        //overflow
+         bufferposition = 0;
+          }
+        
+        serialbuffer[bufferposition] =  _inchar;
+        bufferposition++;
+        
+}
+
+void Resetbuffer()
+{
+  bufferposition = 0;
+  startfound = false;
+  crfound = false;  
+}
+
+void LogBuffer(DateTime _timestamp)
+{
+  
+  int i;
+  
+  dataFile = SD.open(filename, FILE_WRITE);
+  if (!dataFile)
+  {
+    DBG ("error opening file for writing");
+    return;
+  }
+
+  String timestamp = "";
+
+  timestamp += _timestamp.year(); 
+  timestamp += zeropad(_timestamp.month()) ;
+  timestamp += zeropad(_timestamp.day());
+  timestamp += "-";
+  timestamp += zeropad(_timestamp.hour());
+  timestamp += ":";
+  timestamp += zeropad(_timestamp.minute());
+  timestamp += ":";
+  timestamp += zeropad(_timestamp.second());
+  timestamp += ",";
+  timestamp += _timestamp.unixtime();
+  timestamp += ",";
+  dataFile.print(timestamp);
+  
+
+  for (i = 0; i < bufferposition; i++)
+  {
+    dataFile.print(serialbuffer[i]);
+  }
+  dataFile.close();
+
+  serialbuffer[i] = 0x00;
+
+  DBG3 ("Logged one entry\n");
+  DBG ("Serial buffer:  ");
+  DBG2 (serialbuffer);
+
+}
+
+
+void ResetBuffer()
+{
+
+  serialbuffer[0] = 0x00;
+  bufferposition = 0;
+
+}
+
+
+void CreateFilename()
+{
+  logtimestamp= rtc.now();
+
+  String timestamp = "";  
+  timestamp += zeropad(logtimestamp.month()) ;
+  timestamp += zeropad(logtimestamp.day());
+  
+  timestamp += zeropad(logtimestamp.hour());
+  
+  timestamp += zeropad(logtimestamp.minute());
+
+  timestamp += ".csv";
+  sprintf (filename,"%s", timestamp.c_str());  
+
+  INIT  ("new filename :");
+  INIT  (filename);
+  INIT  ("\n");
+}
+
+
+
 /*
 void RTCTestAndLog()
 {
@@ -136,161 +333,4 @@ void RTCTestAndLog()
   }
 }
 */
-
-
-String zeropad(int input)
-{
-  String output;
-  if (input < 10)
-    output = "0" + String(input);
-    else
-    output = input;
-    
- return output;
-}
-
-
-void CheckSerial()
-{
-     
-  char inchar;
-  //if(Serial.available()) {    
-         
-    //keep reading and printing from serial untill there are bytes in the serial buffer
-     while (Serial.available()>0)
-     {
-            
-        inchar = Serial.read();
-    
-       switch(inchar)
-         {
-         case '$' :  
-                     if (startfound)
-                     {
-                      //incomplete previous message already in buffer
-                      LogBuffer(logtimestamp);
-                      ResetBuffer();
-                      startfound = false;
-                     }
-                      
-                     startfound = true;
-                     logtimestamp = rtc.now();
-                     intobuffer(inchar);
-                     break;
-         
-         
-         case '\r':
-                  if (startfound)
-                    crfound = true;
-                    intobuffer(inchar);
-                    break;
-           
-         case '\n':
-                    if (startfound && crfound)
-                    {
-                      intobuffer(inchar);
-                      LogBuffer(logtimestamp);
-                      ResetBuffer();
-                    }
-                      startfound = false;
-                      crfound = false;
-                      
-                      break; 
-         default:
-                    intobuffer(inchar);
-                  
-         }
-     }
-  //}
-}
-
-void intobuffer( char _inchar)
-{
-        if (bufferposition >= BUFFER_SIZE)
-        //overflow
-          bufferposition = 0;
-        
-        serialbuffer[bufferposition] =  _inchar;
-        bufferposition++;
-        
-}
-
-void Resetbuffer()
-{
-  bufferposition = 0;
-  startfound = false;
-  crfound = false;  
-}
-
-void LogBuffer(DateTime _timestamp)
-{
-  int i;
-  
-  dataFile = SD.open(filename, FILE_WRITE);
-  if (!dataFile)
-  {
-    DBG ("error opening file for writing");
-    return;
-  }
-
-  String timestamp = "";
-
-  timestamp += _timestamp.year(); 
-  timestamp += zeropad(_timestamp.month()) ;
-  timestamp += zeropad(_timestamp.day());
-  timestamp += "-";
-  timestamp += zeropad(_timestamp.hour());
-  timestamp += ":";
-  timestamp += zeropad(_timestamp.minute());
-  timestamp += ":";
-  timestamp += zeropad(_timestamp.second());
-  timestamp += ",";
-  timestamp += _timestamp.unixtime();
-  timestamp += ",";
-  dataFile.print(timestamp);
-  
-
-  for (i = 0; i < bufferposition; i++)
-  {
-    dataFile.print(serialbuffer[i]);
-  }
-  dataFile.close();
-
-  serialbuffer[i] = 0x00;
-  DBG ("Logged one entry\n");
-  DBG ("Serial buffer:  ");
-  DBG2 (serialbuffer);
-
-}
-
-
-void ResetBuffer()
-{
-
-  serialbuffer[0] = 0x00;
-  bufferposition = 0;
-
-}
-
-
-void CreateFilename()
-{
-  logtimestamp= rtc.now();
-
-  String timestamp = "";  
-  timestamp += zeropad(logtimestamp.month()) ;
-  timestamp += zeropad(logtimestamp.day());
-  
-  timestamp += zeropad(logtimestamp.hour());
-  
-  timestamp += zeropad(logtimestamp.minute());
-
-  timestamp += ".csv";
-  sprintf (filename,"%s", timestamp.c_str());  
-
-  DBG  ("new filename :");
-  DBG  (filename);
-  DBG  ("\n");
-}
-
 
