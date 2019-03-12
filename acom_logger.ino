@@ -2,15 +2,34 @@
 #include "RTClib.h"
 #include <SPI.h>
 #include <SD.h>
-//#include <Streaming.h>
-#include <SoftwareSerial.h>
+#include <Streaming.h>
+#define USE_DBG_SERIAL
+#define HOUR_START_SEQUENCE  14
 
+#ifdef USE_DBG_SERIAL
+#include <SoftwareSerial.h>
+#define DBG DBGSerial.write
+#define DBG2 DBGSerial.write
+#define DBG3 DBGSerial.write
+#define INIT DBGSerial.write
+SoftwareSerial DBGSerial(2, 3); // RX, TX
+#else
+#define DBG //
+#define DBG2 DBG
+#define DBG3 DBG
+#define INIT //
+#endif
+
+#define SEQUENCE_STEP_RATE_1 1
+#define SEQUENCE_STEP_RATE_4 2
+#define SEQUENCE_STEP_RATE_5 3
+#define SEQUENCE_STEP_RANGE  4
+#define SEQUENCE_FIRST_STEP SEQUENCE_STEP_RATE_1
+#define SEQUENCE_LAST_STEP SEQUENCE_STEP_RANGE
+
+#define SEQUENCE_OFFSET_MS_DEFAULT 5000
 
 #define BUFFER_SIZE 256
-//#define DBG DBGSerial.write
-//#define DBG2 DBGSerial.write
-//#define DBG3 DBGSerial.write
-//#define INIT DBGSerial.write
 #define DBG //
 #define DBG2 DBG
 #define DBG3 DBG
@@ -19,29 +38,31 @@
 RTC_PCF8523 rtc;
 
 char filename []={"03111508.csv"};
-SoftwareSerial DBGSerial(2, 3); // RX, TX
+
 
 const int chipSelect = 10;
 char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
-unsigned long timesent;
-bool  startfound , crfound;  
-DateTime logtimestamp; 
+unsigned long timesent, millis_last_check;
+bool  startfound , crfound, do_send_sequence;  
+unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
+DateTime logtimestamp,timenow,timebefore; 
 File dataFile;
 
 
-void setup() {
+void setup() 
+{
   bufferposition = 0;
  
   // put your setup code here, to run once:
   pinMode (5, OUTPUT);
-
+#ifdef USE_DBG_SERIAL
   DBGSerial.begin(4800);
-
+#endif
   Serial.begin(9600);
 
    if (! rtc.begin()) {
-    DBG ("Couldn't find RTC\n");
+    INIT (F("Couldn't find RTC\n"));
     while (1);
   }
 
@@ -49,7 +70,7 @@ void setup() {
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
 
     if (! rtc.initialized()) {
-    DBG ("RTC is NOT running!");
+    INIT (F("RTC is NOT running!"));
     // following line sets the RTC to the date & time this sketch was compiled
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     // This line sets the RTC with an explicit date & time, for example to set
@@ -58,60 +79,73 @@ void setup() {
   }
 
   CreateFilename();
-  INIT ("Initializing SD card...");
+  INIT (F("Initializing SD card..."));
 
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect)) {
-    DBG ("Card failed, or not present");
+    INIT (F("Card failed, or not present"));
     // don't do anything more:
     return;
   }
-  INIT ("card initialized.");
+  INIT (F("card initialized."));
 
   timesent = millis();
- 
+  millis_last_check = timesent;
+  do_send_sequence = false;
+  sequence_step = SEQUENCE_FIRST_STEP;
+  sequence_done_step = SEQUENCE_LAST_STEP;
+  sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
   
 }
 
-void loop() {
- 
-  
+void loop() 
+{
+   
   CheckSerial();
+ 
+  if (do_send_sequence)
+    DoUplinkSequence();
 
-  SendMessage();
-  return;
-
+  CheckHour();
   
-  //Test();
-    
-  if (bufferposition > BUFFER_SIZE -1)
-          PrintBuffer();
-          
+  return;
+           
    // RTCTestAndLog();
    // delay(1000);
 
 }
 
-/*
-void Test()
+void CheckHour()
 {
- char  inchar = Serial.read();
-  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
-    {
-    intobuffer(inchar);
-   
-    }
+ if ((millis() - millis_last_check) <= 5000)
+ return;
+  
+  timenow = rtc.now();
+  if (timenow.hour() != timebefore.hour())
+    if (timenow.hour() == HOUR_START_SEQUENCE)
+      do_send_sequence = true;
+
+  timebefore = timenow;
+  millis_last_check = millis();
   
 }
-*/
 
-void SendMessage()
-{
-  
-   if (millis() - timesent >= 10000)
+void DoUplinkSequence()
+{       
+   if ((millis() - timesent >= sequence_offset_ms)&&(sequence_step != sequence_done_step))
    {
-    Serial.println(F("$CCCYC,0,1,0,4,0,1"));
-    timesent = millis();
+    switch (sequence_step)
+    {
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,1,0,1,0,1")); timesent = millis();  break;
+      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,1,0,4,0,1")); timesent = millis(); sequence_offset_ms = 10000;  break;
+      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,1,0,5,0,1")); timesent = millis(); break;
+      case SEQUENCE_STEP_RANGE : Serial.println(F("$CCCYC,0,1,0,4,0,1")); timesent = millis(); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      
+    }
+    sequence_done_step = sequence_step;
+    sequence_step++;
+    if (sequence_step > SEQUENCE_LAST_STEP)
+      sequence_step = SEQUENCE_FIRST_STEP;
    }
   
 }
@@ -144,19 +178,15 @@ void CheckSerial()
   char inchar;
   inchar = Serial.read();
   if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
-     
-    //keep reading and printing from serial untill there are bytes in the serial buffer
- //    while (Serial.available()>0)
-    {
-//    inchar = Serial.read();
-   //DBG (inchar);
+         
+  {
       switch(inchar)
          {
          case '$' :  
                      if (startfound)
                      {
                       //incomplete previous message already in buffer
-                      intobuffer("\n");
+                      intobuffer(F("\n"));
                       LogBuffer(logtimestamp, true);
                       ResetBuffer();
                       startfound = false;
@@ -178,6 +208,7 @@ void CheckSerial()
                     if (startfound && crfound)
                     {
                       intobuffer(inchar);
+                      CheckCommand();
                       LogBuffer(logtimestamp, true);
                       ResetBuffer();
                     }
@@ -193,8 +224,58 @@ void CheckSerial()
   }
 }
 
+void CheckCommand()
+{
+  unsigned short command,chks;
+  const static char s1[] PROGMEM = "CCMUC";
+  const static char c1[] PROGMEM = "$CCMUC,0,1,1111";
+  const static char c2[] PROGMEM = "$CCMUC,0,1,1010";
+  const static char c3[] PROGMEM = "$CCMUC,0,1,2222";
+  const static char c4[] PROGMEM = "$CCMUC,0,1,3333";
+  const static char c5[] PROGMEM = "$CCMUC,0,1,4444";
+ // if (strstr(serialbuffer, s1))
+    if(bufferposition < 25)
+    {
+      if (strstr(serialbuffer,c1))
+      {
+        do_send_sequence = true; 
+        sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; 
+        sequence_step = SEQUENCE_FIRST_STEP; 
+      }
+      else if (strstr(serialbuffer,c2))
+      do_send_sequence = false;
+      else if (strstr(serialbuffer,c3))
+      SetBandwidth(1);
+      else if (strstr(serialbuffer,c4))
+      SetBandwidth(2);
+      else if (strstr(serialbuffer,c5))
+      SetBandwidth(3);
+            
+      /*
+      sscanf (serialbuffer, "$CCMUC,0,1,%d*%d\n", &command,&chks);
+      switch (command)
+      {
+        case 1111: do_send_sequence = true; sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; sequence_step = SEQUENCE_FIRST_STEP; break;
+        case 0: do_send_sequence = false; break;
+        case 2222: SetBandwidth(1); break;
+        case 3333: SetBandwidth(2); break;
+        case 4444: SetBandwidth(3); break;
+        
+      }*/
+      }
+    
+}
 
-/*
+void SetBandwidth(unsigned short _bw)
+{
+  switch (_bw)
+  {
+    case 1 :    Serial.println(F("$CCCFG,XXXX")); break;
+    case 2 :    Serial.println(F("$CCCFG,YYYY")); break;
+    case 3 :    Serial.println(F("$CCCFG,ZZZZ")); break;
+  }
+}
+
 void CheckSerialIf()
 {
 
@@ -202,51 +283,45 @@ void CheckSerialIf()
   inchar = Serial.read();
   if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
       
-    {
+  {
+    if (inchar == '$')
 
-      switch(inchar)
-         {
-         case '$' :  
-                     if (startfound)
+      {  
+          /*           if (startfound)
                      {
                       //incomplete previous message already in buffer
                       intobuffer("\n");
-                      LogBuffer(logtimestamp);
+                      LogBuffer(logtimestamp, true);
                       ResetBuffer();
                       startfound = false;
                      }
-                      
+             */         
                      startfound = true;
                      logtimestamp = rtc.now();
-                     intobuffer(inchar);
-                     break;
-         
-         
-         case '\r':
+                //     intobuffer(inchar);
+      }
+  /*    else if (inchar == '\r')
+      {
                   if (startfound)
                     crfound = true;
-                    intobuffer(inchar);
-                    break;
-           
-        case '\n':
+        //            intobuffer(inchar);
+      }*/
+      else if (inchar =='\n')
+      {
                     if (startfound && crfound)
-                    {
-                      intobuffer(inchar);
-                      LogBuffer(logtimestamp);
-                      ResetBuffer();
-                    }
+                    //{
+          //           intobuffer(inchar);
+           //           LogBuffer(logtimestamp,true);
+          //            ResetBuffer();
+                    //}
                       startfound = false;
                       crfound = false;
                       
-                      break; 
-         default:
-                    intobuffer(inchar);
-                  
-         }
+       }
      
   }
 }
-*/
+
 
 void intobuffer( char _inchar)
 {
@@ -281,7 +356,7 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
   dataFile = SD.open(filename, FILE_WRITE);
   if (!dataFile)
   {
-    DBG ("error opening file for writing");
+    DBG (F("error opening file for writing"));
     return;
   }
 
@@ -312,8 +387,8 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
 
   serialbuffer[i] = 0x00;
 
-  DBG3 ("Logged one entry\n");
-  DBG ("Serial buffer:  ");
+  DBG3 (F("Logged one entry\n"));
+  DBG (F("Serial buffer:  "));
   DBG2 (serialbuffer);
 
 }
@@ -343,9 +418,9 @@ void CreateFilename()
   timestamp += ".csv";
   sprintf (filename,"%s", timestamp.c_str());  
 
-  INIT  ("new filename :");
+  INIT  (F("new filename :"));
   INIT  (filename);
-  INIT  ("\n");
+  INIT  (F("\n"));
 }
 
 
