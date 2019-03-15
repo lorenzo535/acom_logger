@@ -4,14 +4,14 @@
 #include <SD.h>
 #include <Streaming.h>
 #define USE_DBG_SERIAL
-#define HOUR_START_SEQUENCE  14
+#define HOUR_START_SEQUENCE  15
 
 #ifdef USE_DBG_SERIAL
 #include <SoftwareSerial.h>
-#define DBG DBGSerial.write
-#define DBG2 DBGSerial.write
-#define DBG3 DBGSerial.write
-#define INIT DBGSerial.write
+#define DBG DBGSerial.println
+#define DBG2 DBGSerial.println
+#define DBG3 DBGSerial.println
+#define INIT DBGSerial.println
 SoftwareSerial DBGSerial(2, 3); // RX, TX
 #else
 #define DBG //
@@ -23,17 +23,20 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_STEP_RATE_1 1
 #define SEQUENCE_STEP_RATE_4 2
 #define SEQUENCE_STEP_RATE_5 3
-#define SEQUENCE_STEP_RANGE  4
+#define SEQUENCE_STEP_PING  4
+#define SEQUENCE_STEP_RANGE  5
 #define SEQUENCE_FIRST_STEP SEQUENCE_STEP_RATE_1
-#define SEQUENCE_LAST_STEP SEQUENCE_STEP_RANGE
+#define SEQUENCE_LAST_STEP SEQUENCE_STEP_PING
 
 #define SEQUENCE_OFFSET_MS_DEFAULT 5000
 
 #define BUFFER_SIZE 256
-#define DBG //
-#define DBG2 DBG
-#define DBG3 DBG
-#define INIT //
+
+//#define DBG //
+//#define DBG2 DBG
+//#define DBG3 DBG
+//#define INIT //
+
 
 RTC_PCF8523 rtc;
 
@@ -66,8 +69,9 @@ void setup()
     while (1);
   }
 
-  // intialize at compiler time
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  
+ // This line sets the RTC with an explicit date & time
+   // rtc.adjust(DateTime(2019, 3, 13, 14, 59, 35));
 
     if (! rtc.initialized()) {
     INIT (F("RTC is NOT running!"));
@@ -95,14 +99,20 @@ void setup()
   sequence_step = SEQUENCE_FIRST_STEP;
   sequence_done_step = SEQUENCE_LAST_STEP;
   sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
+
+  Serial.println(F("$CCCFQ,ALL"));
+  timebefore = rtc.now();
   
 }
 
 void loop() 
 {
+   //RTCTestAndLog();
+   //delay(1000);
+   //return;
    
   CheckSerial();
- 
+   
   if (do_send_sequence)
     DoUplinkSequence();
 
@@ -110,8 +120,7 @@ void loop()
   
   return;
            
-   // RTCTestAndLog();
-   // delay(1000);
+   
 
 }
 
@@ -119,11 +128,15 @@ void CheckHour()
 {
  if ((millis() - millis_last_check) <= 5000)
  return;
-  
+
   timenow = rtc.now();
-  if (timenow.hour() != timebefore.hour())
+   
+  if (timenow.hour() > timebefore.hour())
     if (timenow.hour() == HOUR_START_SEQUENCE)
+    {
       do_send_sequence = true;
+      DBG3 (F("hour check has started sequence"));
+    }
 
   timebefore = timenow;
   millis_last_check = millis();
@@ -132,14 +145,16 @@ void CheckHour()
 
 void DoUplinkSequence()
 {       
+   
    if ((millis() - timesent >= sequence_offset_ms)&&(sequence_step != sequence_done_step))
    {
     switch (sequence_step)
     {
-      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,1,0,1,0,1")); timesent = millis();  break;
-      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,1,0,4,0,1")); timesent = millis(); sequence_offset_ms = 10000;  break;
-      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,1,0,5,0,1")); timesent = millis(); break;
-      case SEQUENCE_STEP_RANGE : Serial.println(F("$CCCYC,0,1,0,4,0,1")); timesent = millis(); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis();  break;
+      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); sequence_offset_ms = 10000;  break;
+      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  break;
+      //case SEQUENCE_STEP_RANGE : Serial.println(F("$CCCFQ,fathometer.min_dx_m")); timesent = millis();  break;
       
     }
     sequence_done_step = sequence_step;
@@ -177,6 +192,7 @@ void CheckSerial()
 
   char inchar;
   inchar = Serial.read();
+  
   if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
          
   {
@@ -186,7 +202,7 @@ void CheckSerial()
                      if (startfound)
                      {
                       //incomplete previous message already in buffer
-                      intobuffer(F("\n"));
+                      intobuffer(('\n'));
                       LogBuffer(logtimestamp, true);
                       ResetBuffer();
                       startfound = false;
@@ -227,31 +243,52 @@ void CheckSerial()
 void CheckCommand()
 {
   unsigned short command,chks;
-  const static char s1[] PROGMEM = "CCMUC";
-  const static char c1[] PROGMEM = "$CCMUC,0,1,1111";
-  const static char c2[] PROGMEM = "$CCMUC,0,1,1010";
-  const static char c3[] PROGMEM = "$CCMUC,0,1,2222";
-  const static char c4[] PROGMEM = "$CCMUC,0,1,3333";
-  const static char c5[] PROGMEM = "$CCMUC,0,1,4444";
- if (strstr(serialbuffer, s1) && (bufferposition < 25))
+ 
+  const static char s1[] PROGMEM = "CAMUA";
+  const static char start_seq[] PROGMEM = "$CAMUA,1,0,1fff";
+  const static char stop_seq[]  PROGMEM = "$CAMUA,1,0,0000";
+  const static char bw5000[]    PROGMEM = "$CAMUA,1,0,0500";
+  const static char bw2500[]    PROGMEM = "$CAMUA,1,0,0250";
+  const static char bw1250[]    PROGMEM = "$CAMUA,1,0,0125";
+  const static char bw2000[]    PROGMEM = "$CAMUA,1,0,0200";
+  const static char freq10000[] PROGMEM = "$CAMUA,1,0,1100";
+  const static char freq9000[]   PROGMEM = "$CAMUA,1,0,1900";
+
+  
+ if (strstr_P(serialbuffer, s1) && (bufferposition < 25))
     {
-      if (strstr(serialbuffer,c1))
+      DBG3 (F("Received a MUC command"));
+      
+      if (strstr_P(serialbuffer,start_seq))
       {
+        
         do_send_sequence = true; 
         sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; 
-        sequence_step = SEQUENCE_FIRST_STEP; 
+        sequence_step = SEQUENCE_FIRST_STEP;
+        sequence_done_step = SEQUENCE_LAST_STEP;
+        DBG3 (F("command start sequence")); 
       }
-      else if (strstr(serialbuffer,c2))
+      else if (strstr_P(serialbuffer,stop_seq))
+      {
         do_send_sequence = false;
-      else if (strstr(serialbuffer,c3))
-        SetBandwidth(1);
-      else if (strstr(serialbuffer,c4))
-        SetBandwidth(2);
-      else if (strstr(serialbuffer,c5))
-        SetBandwidth(3);
-            
+           DBG3 (F("command stop sequence")); 
+      }
+      else if (strstr_P(serialbuffer,bw5000))
+        SetBandwidthOrFrequency(5000);
+      else if (strstr_P(serialbuffer,bw2500))
+        SetBandwidthOrFrequency(2500);
+      else if (strstr_P(serialbuffer,bw1250))
+        SetBandwidthOrFrequency(1250);
+      else if (strstr_P(serialbuffer,bw2000))
+        SetBandwidthOrFrequency(2000);
+      else if (strstr_P(serialbuffer,freq10000))
+        SetBandwidthOrFrequency(10000);
+       else if (strstr_P(serialbuffer,freq9000))
+        SetBandwidthOrFrequency(9000);
+
+                   
       /*
-      sscanf (serialbuffer, "$CCMUC,0,1,%d*%d\n", &command,&chks);
+      sscanf (serialbuffer, "$CAMUA,0,1,%d*%d\n", &command,&chks);
       switch (command)
       {
         case 1111: do_send_sequence = true; sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; sequence_step = SEQUENCE_FIRST_STEP; break;
@@ -265,13 +302,21 @@ void CheckCommand()
     
 }
 
-void SetBandwidth(unsigned short _bw)
+void SetBandwidthOrFrequency(unsigned short _bw)
 {
+     DBG3 (F("====")); 
+     DBG3 (F("Setting bandwith to parameter"));
+     DBG3 (_bw);
+     DBG3 (F("====")); 
+  
   switch (_bw)
   {
-    case 1 :    Serial.println(F("$CCCFG,XXXX")); break;
-    case 2 :    Serial.println(F("$CCCFG,YYYY")); break;
-    case 3 :    Serial.println(F("$CCCFG,ZZZZ")); break;
+    case 5000 :    Serial.println(F("$CCCFG,BW0,5000")); break;
+    case 2500 :    Serial.println(F("$CCCFG,BW0,2500")); break;
+    case 1250 :    Serial.println(F("$CCCFG,BW0,1250")); break;
+    case 2000 :    Serial.println(F("$CCCFG,BW0,2000")); break;
+    case 10000 :   Serial.println(F("$CCCFG,FC0,10000")); break;
+    case 9000 :    Serial.println(F("$CCCFG,FC0,9000")); break;
   }
 }
 
@@ -292,6 +337,8 @@ void intobuffer( char _inchar)
         
         serialbuffer[bufferposition] =  _inchar;
         bufferposition++;
+
+      
         
 }
 
@@ -341,7 +388,7 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
 
   serialbuffer[i] = 0x00;
 
-  DBG3 (F("Logged one entry\n"));
+  DBG (F("Logged one entry\n"));
   DBG (F("Serial buffer:  "));
   DBG2 (serialbuffer);
 
@@ -379,7 +426,7 @@ void CreateFilename()
 
 
 
-/*
+
 void RTCTestAndLog()
 {
   DateTime now = rtc.now();
@@ -390,7 +437,7 @@ void RTCTestAndLog()
     Serial.print('/');
     Serial.print(now.day(), DEC);
     Serial.print(" (");
-    Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
+   // Serial.print(daysOfTheWeek[now.dayOfTheWeek()]);
     Serial.print(") ");
     Serial.print(now.hour(), DEC);
     Serial.print(':');
@@ -398,7 +445,7 @@ void RTCTestAndLog()
     Serial.print(':');
     Serial.print(now.second(), DEC);
     Serial.println();
-
+/*
 
   String dataString = "";
 
@@ -442,6 +489,7 @@ void RTCTestAndLog()
   else {
     DBG ("error opening datalog.txt");
   }
+  */
 }
-*/
+
 
