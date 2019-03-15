@@ -42,8 +42,8 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define BUFFER_SIZE 256
 
 #define DBG //
-#define DBG2 DBG
-#define DBG3 DBG
+#define DBG2 //
+#define DBG3 //
 //#define INIT //
 
 
@@ -98,7 +98,9 @@ void setup()
     DisplayInfo();
   }
 
-  CreateFilename();
+ 
+ 
+  
   INIT (F("Initializing SD card..."));
 
   // see if the card is present and can be initialized:
@@ -120,6 +122,8 @@ void setup()
   timebefore = rtc.now();
   display_info = false;
   file_is_open = false;
+
+   CreateFilename();
    
 }
 
@@ -152,13 +156,13 @@ void CheckHourAndDisplay()
  return;
 
 // battery = 12.12;//analogRead(A6) * BATTERY_SCALE + BATTERY_OFFSET;
-
-if (file_is_open)
+/*
+if (dataFile)
 {
   dataFile.close();
   file_is_open = false;
 }
-
+*/
 
   timenow = rtc.now();
   if (display_info)
@@ -382,7 +386,7 @@ void intobuffer( char _inchar)
          if (serialbuffer[0] == '$')
             LogBuffer(logtimestamp, true);
          LogBuffer(logtimestamp, false);
-         serialbuffer[bufferposition] = 0x00;
+         //serialbuffer[bufferposition] = 0x00;
          
         //overflow
          bufferposition = 0;
@@ -407,15 +411,10 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
   
   int i;
 
-  if (!file_is_open)
-  {
-  
-       dataFile = SD.open(filename, FILE_WRITE);
-       file_is_open = true;
-  }
   if (!dataFile)
   {
-    DBG (F("error opening file for writing"));
+    dataFile = SD.open(filename, FILE_WRITE);
+    DBG (F(" #################   error opening file for writing"));    
     return;
   }
 
@@ -438,12 +437,14 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
     dataFile.print(timestamp);
   }  
 
+ 
+
   for (i = 0; i < bufferposition; i++)
   {
     dataFile.print(serialbuffer[i]);
    
   }
-  //dataFile.close();
+  
 
   serialbuffer[i] = 0x00;
 
@@ -481,6 +482,10 @@ void CreateFilename()
   INIT  (F("new filename :"));
   INIT  (filename);
   INIT  (F("\n"));
+
+
+  //Open file by default:
+   dataFile = SD.open(filename, FILE_WRITE);
 }
 
 
@@ -569,8 +574,8 @@ void ReadKeyboardCmds()
       {
        case 'I': display_info = !display_info;  break;
        
-       case 'O': break;
-       case 'P':  break;
+       case 'X': INIT (F("Received file close command")); dataFile.close();  break;
+       case 'O':  INIT (F("Received file open command"));  dataFile = SD.open(filename, FILE_WRITE);  break;
        case 'Q': break;
             
       }
