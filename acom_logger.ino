@@ -4,11 +4,18 @@
 #include <SD.h>
 #include <Streaming.h>
 #define USE_DBG_SERIAL
+
+//========================================
 #define HOUR_START_SEQUENCE  15
+//========================================
+
+#define BATTERY_SCALE 0.025715
+#define BATTERY_OFFSET -0.466921
 
 #ifdef USE_DBG_SERIAL
 #include <SoftwareSerial.h>
 #define DBG DBGSerial.println
+#define DISPLAY_INFO DBGSerial.print
 #define DBG2 DBGSerial.println
 #define DBG3 DBGSerial.println
 #define INIT DBGSerial.println
@@ -18,30 +25,32 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define DBG2 DBG
 #define DBG3 DBG
 #define INIT //
+#define DISPLAY_INFO //
 #endif
 
 #define SEQUENCE_STEP_RATE_1 1
 #define SEQUENCE_STEP_RATE_4 2
 #define SEQUENCE_STEP_RATE_5 3
 #define SEQUENCE_STEP_PING  4
-#define SEQUENCE_STEP_RANGE  5
+#define SEQUENCE_STEP_PAUSE  5
 #define SEQUENCE_FIRST_STEP SEQUENCE_STEP_RATE_1
-#define SEQUENCE_LAST_STEP SEQUENCE_STEP_PING
+#define SEQUENCE_LAST_STEP SEQUENCE_STEP_PAUSE
 
-#define SEQUENCE_OFFSET_MS_DEFAULT 5000
+#define SEQUENCE_OFFSET_MS_DEFAULT 8000
+#define SEQUENCE_OFFSET_MS_PAUSE 40000
 
 #define BUFFER_SIZE 256
 
-//#define DBG //
-//#define DBG2 DBG
-//#define DBG3 DBG
+#define DBG //
+#define DBG2 DBG
+#define DBG3 DBG
 //#define INIT //
 
 
 RTC_PCF8523 rtc;
 
 char filename []={"03111508.csv"};
-
+bool file_is_open;
 
 const int chipSelect = 10;
 char serialbuffer[BUFFER_SIZE];
@@ -51,7 +60,7 @@ bool  startfound , crfound, do_send_sequence;
 unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
 DateTime logtimestamp,timenow,timebefore; 
 File dataFile;
-
+bool display_info;
 
 void setup() 
 {
@@ -59,13 +68,14 @@ void setup()
  
   // put your setup code here, to run once:
   pinMode (5, OUTPUT);
+  pinMode (A6, INPUT);
 #ifdef USE_DBG_SERIAL
   DBGSerial.begin(4800);
 #endif
   Serial.begin(9600);
 
    if (! rtc.begin()) {
-    INIT (F("Couldn't find RTC\n"));
+    INIT ( F("Couldn't find RTC\n") );
     while (1);
   }
 
@@ -80,6 +90,12 @@ void setup()
     // This line sets the RTC with an explicit date & time, for example to set
     // January 21, 2014 at 3am you would call:
     // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
+  else
+  {
+    INIT (F("RTC fine and dandy ...."));
+    timenow = rtc.now();
+    DisplayInfo();
   }
 
   CreateFilename();
@@ -102,7 +118,9 @@ void setup()
 
   Serial.println(F("$CCCFQ,ALL"));
   timebefore = rtc.now();
-  
+  display_info = false;
+  file_is_open = false;
+   
 }
 
 void loop() 
@@ -116,20 +134,37 @@ void loop()
   if (do_send_sequence)
     DoUplinkSequence();
 
-  CheckHour();
-  
+  CheckHourAndDisplay();
+
+
+  ReadKeyboardCmds();
   return;
            
    
 
 }
 
-void CheckHour()
+void CheckHourAndDisplay()
 {
+
+ 
  if ((millis() - millis_last_check) <= 5000)
  return;
 
+// battery = 12.12;//analogRead(A6) * BATTERY_SCALE + BATTERY_OFFSET;
+
+if (file_is_open)
+{
+  dataFile.close();
+  file_is_open = false;
+}
+
+
   timenow = rtc.now();
+  if (display_info)
+  {
+     DisplayInfo();
+  }
    
   if (timenow.hour() > timebefore.hour())
     if (timenow.hour() == HOUR_START_SEQUENCE)
@@ -150,11 +185,11 @@ void DoUplinkSequence()
    {
     switch (sequence_step)
     {
-      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis();  break;
-      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); sequence_offset_ms = 10000;  break;
-      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
-      case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  break;
-      //case SEQUENCE_STEP_RANGE : Serial.println(F("$CCCFQ,fathometer.min_dx_m")); timesent = millis();  break;
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1"));  break;
+      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 4"));sequence_offset_ms = 10000;  break;
+      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 5"));sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  DBG (F(">>>>> Sequence PING"));sequence_offset_ms = SEQUENCE_OFFSET_MS_PAUSE; break;
+      case SEQUENCE_STEP_PAUSE :  timesent = millis();  DBG (F(">>>>>> Sequence PAUSE")); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
       
     }
     sequence_done_step = sequence_step;
@@ -196,6 +231,7 @@ void CheckSerial()
   if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
          
   {
+      
       switch(inchar)
          {
          case '$' :  
@@ -209,7 +245,7 @@ void CheckSerial()
                      }
                       
                      startfound = true;
-                     logtimestamp = rtc.now();
+                     logtimestamp = timenow; //rtc.now();
                      intobuffer(inchar);
                      break;
          
@@ -240,6 +276,9 @@ void CheckSerial()
   }
 }
 
+
+
+
 void CheckCommand()
 {
   unsigned short command,chks;
@@ -253,6 +292,7 @@ void CheckCommand()
   const static char bw2000[]    PROGMEM = "$CAMUA,1,0,0200";
   const static char freq10000[] PROGMEM = "$CAMUA,1,0,1100";
   const static char freq9000[]   PROGMEM = "$CAMUA,1,0,1900";
+  const static char battreq[]   PROGMEM = "$CAMUA,1,0,0bbb";
 
   
  if (strstr_P(serialbuffer, s1) && (bufferposition < 25))
@@ -266,6 +306,7 @@ void CheckCommand()
         sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; 
         sequence_step = SEQUENCE_FIRST_STEP;
         sequence_done_step = SEQUENCE_LAST_STEP;
+        timesent = millis();
         DBG3 (F("command start sequence")); 
       }
       else if (strstr_P(serialbuffer,stop_seq))
@@ -285,6 +326,8 @@ void CheckCommand()
         SetBandwidthOrFrequency(10000);
        else if (strstr_P(serialbuffer,freq9000))
         SetBandwidthOrFrequency(9000);
+       else if (strstr_P(serialbuffer,battreq))
+        SendBatteryValue();
 
                    
       /*
@@ -300,6 +343,16 @@ void CheckCommand()
       }*/
       }
     
+}
+
+void SendBatteryValue()
+{
+  unsigned short battADC = analogRead(A6);
+  if (battADC < 1000)
+    Serial.print (F("$CCMUC,0,1,0"));
+    else
+  Serial.print (F("$CCMUC,0,1,"));  
+  Serial.println(battADC);
 }
 
 void SetBandwidthOrFrequency(unsigned short _bw)
@@ -329,7 +382,7 @@ void intobuffer( char _inchar)
          if (serialbuffer[0] == '$')
             LogBuffer(logtimestamp, true);
          LogBuffer(logtimestamp, false);
-         
+         serialbuffer[bufferposition] = 0x00;
          
         //overflow
          bufferposition = 0;
@@ -353,8 +406,13 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
 {
   
   int i;
+
+  if (!file_is_open)
+  {
   
-  dataFile = SD.open(filename, FILE_WRITE);
+       dataFile = SD.open(filename, FILE_WRITE);
+       file_is_open = true;
+  }
   if (!dataFile)
   {
     DBG (F("error opening file for writing"));
@@ -383,8 +441,9 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
   for (i = 0; i < bufferposition; i++)
   {
     dataFile.print(serialbuffer[i]);
+   
   }
-  dataFile.close();
+  //dataFile.close();
 
   serialbuffer[i] = 0x00;
 
@@ -492,4 +551,45 @@ void RTCTestAndLog()
   */
 }
 
+
+
+void ReadKeyboardCmds()
+{
+  
+    //Check for manual commands
+   if (DBGSerial.available() > 0) 
+   {  
+    DBG (F("keyboard in:"));
+      
+      char rx_byte = DBGSerial.read();       // get the character
+          
+      
+          
+      switch (rx_byte) 
+      {
+       case 'I': display_info = !display_info;  break;
+       
+       case 'O': break;
+       case 'P':  break;
+       case 'Q': break;
+            
+      }
+        
+     }
+}
+
+void DisplayInfo()
+{
+   DISPLAY_INFO (F(" >>>> BATT: "));
+     DISPLAY_INFO ( analogRead(A6));
+     DISPLAY_INFO (F("\n"));
+     DISPLAY_INFO (F("==== TIME: "));
+     DISPLAY_INFO ( timenow.hour());
+     DISPLAY_INFO (F(":"));
+     DISPLAY_INFO ( timenow.minute());
+     DISPLAY_INFO (F("-"));
+     DISPLAY_INFO ( timenow.second());
+     DISPLAY_INFO (F("\n"));
+
+}
 
