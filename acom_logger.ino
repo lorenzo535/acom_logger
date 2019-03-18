@@ -3,7 +3,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <Streaming.h>
-#define USE_DBG_SERIAL
+//#define USE_DBG_SERIAL
 
 //========================================
 #define HOUR_START_SEQUENCE  15
@@ -46,16 +46,17 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define DBG3 //
 //#define INIT //
 
+#define SD_CHIPSELECT 10
+
 
 RTC_PCF8523 rtc;
 
 char filename []={"03111508.csv"};
-bool file_is_open;
 
-const int chipSelect = 10;
+
 char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
-unsigned long timesent, millis_last_check;
+unsigned long timesent, millis_last_check , fopen_time;
 bool  startfound , crfound, do_send_sequence;  
 unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
 DateTime logtimestamp,timenow,timebefore; 
@@ -98,13 +99,10 @@ void setup()
     DisplayInfo();
   }
 
- 
- 
-  
   INIT (F("Initializing SD card..."));
 
   // see if the card is present and can be initialized:
-  if (!SD.begin(chipSelect)) {
+  if (!SD.begin(SD_CHIPSELECT)) {
     INIT (F("Card failed, or not present"));
     // don't do anything more:
     return;
@@ -121,9 +119,10 @@ void setup()
   Serial.println(F("$CCCFQ,ALL"));
   timebefore = rtc.now();
   display_info = false;
-  file_is_open = false;
+
 
    CreateFilename();
+   fopen_time = millis();
    
 }
 
@@ -140,8 +139,11 @@ void loop()
 
   CheckHourAndDisplay();
 
-
   ReadKeyboardCmds();
+  
+  if (dataFile)
+    CloseFile();
+  
   return;
            
    
@@ -406,6 +408,15 @@ void Resetbuffer()
   crfound = false;  
 }
 
+void CloseFile()
+{
+
+  if (millis() - fopen_time >= 10000)
+    dataFile.close(); 
+}
+
+
+
 void LogBuffer(DateTime _timestamp, bool withstamp)
 {
   
@@ -414,11 +425,12 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
   if (!dataFile)
   {
     dataFile = SD.open(filename, FILE_WRITE);
+    fopen_time = millis();
+    
     DBG (F(" #################   error opening file for writing"));    
-    return;
+    dataFile.println(F("reopen"));
   }
-
-  if (withstamp)
+   if (withstamp)
   {
     String timestamp = "";
   
@@ -444,7 +456,6 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
     dataFile.print(serialbuffer[i]);
    
   }
-  
 
   serialbuffer[i] = 0x00;
 
@@ -560,7 +571,7 @@ void RTCTestAndLog()
 
 void ReadKeyboardCmds()
 {
-  
+  #ifdef USE_DBG_SERIAL
     //Check for manual commands
    if (DBGSerial.available() > 0) 
    {  
@@ -581,6 +592,7 @@ void ReadKeyboardCmds()
       }
         
      }
+  #endif
 }
 
 void DisplayInfo()
