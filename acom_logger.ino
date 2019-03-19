@@ -3,14 +3,11 @@
 #include <SPI.h>
 #include <SD.h>
 #include <Streaming.h>
+
+//########## DEBUG SERIAL  #################
+//---------------------
 //#define USE_DBG_SERIAL
-
-//========================================
-#define HOUR_START_SEQUENCE  15
-//========================================
-
-#define BATTERY_SCALE 0.025715
-#define BATTERY_OFFSET -0.466921
+//---------------------
 
 #ifdef USE_DBG_SERIAL
 #include <SoftwareSerial.h>
@@ -28,6 +25,23 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define DISPLAY_INFO //
 #endif
 
+
+#define DBG //
+//#define DBG2 //
+#define DBG3 //
+//#define INIT //
+
+//########################################
+
+
+//========================================
+#define HOUR_START_SEQUENCE  15
+//========================================
+
+#define BATTERY_SCALE 0.025715
+#define BATTERY_OFFSET -0.466921
+
+// --------------SEQUENCE---------------------
 #define SEQUENCE_STEP_RATE_1 1
 #define SEQUENCE_STEP_RATE_4 2
 #define SEQUENCE_STEP_RATE_5 3
@@ -36,28 +50,23 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_FIRST_STEP SEQUENCE_STEP_RATE_1
 #define SEQUENCE_LAST_STEP SEQUENCE_STEP_PAUSE
 
-#define SEQUENCE_OFFSET_MS_DEFAULT 8000
-#define SEQUENCE_OFFSET_MS_PAUSE 40000
+#define SEQUENCE_OFFSET_MS_DEFAULT 18000
+#define SEQUENCE_OFFSET_MS_PAUSE 24000
+//---------------------------------------------
 
 #define BUFFER_SIZE 256
-
-#define DBG //
-#define DBG2 //
-#define DBG3 //
-//#define INIT //
-
 #define SD_CHIPSELECT 10
 
+#define DELAY_FILE_CLOSE_MS 60000
 
 RTC_PCF8523 rtc;
 
 char filename []={"03111508.csv"};
 
-
 char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
 unsigned long timesent, millis_last_check , fopen_time;
-bool  startfound , crfound, do_send_sequence;  
+bool  startfound , crfound, do_send_sequence, cycle_init_requested;  
 unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
 DateTime logtimestamp,timenow,timebefore; 
 File dataFile;
@@ -123,6 +132,7 @@ void setup()
 
    CreateFilename();
    fopen_time = millis();
+   cycle_init_requested = false; 
    
 }
 
@@ -191,9 +201,9 @@ void DoUplinkSequence()
    {
     switch (sequence_step)
     {
-      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1"));  break;
-      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 4"));sequence_offset_ms = 10000;  break;
-      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 5"));sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1")); cycle_init_requested = true; break;
+      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 4")); cycle_init_requested = true;  break;
+      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 5")); cycle_init_requested = true;  break;
       case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  DBG (F(">>>>> Sequence PING"));sequence_offset_ms = SEQUENCE_OFFSET_MS_PAUSE; break;
       case SEQUENCE_STEP_PAUSE :  timesent = millis();  DBG (F(">>>>>> Sequence PAUSE")); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
       
@@ -205,7 +215,6 @@ void DoUplinkSequence()
    }
   
 }
-
 
 
 void PrintBuffer()
@@ -299,10 +308,14 @@ void CheckCommand()
   const static char freq10000[] PROGMEM = "$CAMUA,1,0,1100";
   const static char freq9000[]   PROGMEM = "$CAMUA,1,0,1900";
   const static char battreq[]   PROGMEM = "$CAMUA,1,0,0bbb";
+   const static char txdatareq[]   PROGMEM = "$CADRQ,";
 
   
  if (strstr_P(serialbuffer, s1) && (bufferposition < 25))
-    {
+ {
+     ///////////////
+     // MUC COMMANDS
+     ///////////////
       DBG3 (F("Received a MUC command"));
       
       if (strstr_P(serialbuffer,start_seq))
@@ -333,23 +346,44 @@ void CheckCommand()
        else if (strstr_P(serialbuffer,freq9000))
         SetBandwidthOrFrequency(9000);
        else if (strstr_P(serialbuffer,battreq))
-        SendBatteryValue();
-
-                   
-      /*
-      sscanf (serialbuffer, "$CAMUA,0,1,%d*%d\n", &command,&chks);
-      switch (command)
-      {
-        case 1111: do_send_sequence = true; sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; sequence_step = SEQUENCE_FIRST_STEP; break;
-        case 0: do_send_sequence = false; break;
-        case 2222: SetBandwidth(1); break;
-        case 3333: SetBandwidth(2); break;
-        case 4444: SetBandwidth(3); break;
-        
-      }*/
-      }
+        SendBatteryValue();                  
+   }
+   else if ((strstr_P(serialbuffer, txdatareq) && cycle_init_requested))
+   {
+    cycle_init_requested = false;
+    switch (sequence_step - 1)
+    {
+      case SEQUENCE_STEP_RATE_1 : SendTxData_rate1();  break;
+      case SEQUENCE_STEP_RATE_4 : SendTxData_rate4();   break;
+      case SEQUENCE_STEP_RATE_5 : SendTxData_rate5();   break; 
+    }
+   }
     
 }
+void SendTxData_rate1()
+{
+    unsigned short battADC = analogRead(A6);
+    if (battADC < 1000)
+    Serial.print(F("$CCTXD,0,1,0,0"));
+    else
+    Serial.print(F("$CCTXD,0,1,0,"));
+    
+    Serial.print(battADC);
+ 
+    Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF"));
+}
+
+void SendTxData_rate4()
+{
+   Serial.println(F("$CCTXD,0,1,0,000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF"));
+}
+
+void SendTxData_rate5()
+{
+   Serial.println(F("$CCTXD,0,1,0,000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF"));
+}
+
+
 
 void SendBatteryValue()
 {
@@ -411,7 +445,7 @@ void Resetbuffer()
 void CloseFile()
 {
 
-  if (millis() - fopen_time >= 10000)
+  if (millis() - fopen_time >= DELAY_FILE_CLOSE_MS )
     dataFile.close(); 
 }
 
