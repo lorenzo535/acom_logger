@@ -54,6 +54,36 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_OFFSET_MS_PAUSE 24000
 //---------------------------------------------
 
+
+//-------- Function definitions---------------
+void CheckSerial();
+void CheckSerial();
+void CheckHourAndDisplay();
+void CheckCommand();
+void CreateFilename();
+void CloseFile();
+void DisplayInfo();
+void DoUplinkSequence();
+void intobuffer(char _inchar);
+void LogBuffer(DateTime _timestamp, bool withstamp);
+void PrintBuffer();
+void ReadKeyboardCmds();
+void ResetBuffer();
+void RTCTestAndLog();
+void SendBatteryValue();
+void SendTxData_rate1();
+void SendTxData_rate4();
+void SendTxData_rate5();
+void SetBandwidthOrFrequency(unsigned short _bw);
+void ShowTime();
+
+
+
+
+
+
+//---------------------------------------------
+
 #define BUFFER_SIZE 256
 #define SD_CHIPSELECT 10
 
@@ -66,16 +96,16 @@ char filename []={"03111508.csv"};
 char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
 unsigned long timesent, millis_last_check , fopen_time;
-bool  startfound , crfound, do_send_sequence, cycle_init_requested;  
+bool  startfound , crfound, do_send_sequence, cycle_init_requested;
 unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
-DateTime logtimestamp,timenow,timebefore; 
+DateTime logtimestamp,timenow,timebefore;
 File dataFile;
 bool display_info;
 
-void setup() 
+void setup()
 {
   bufferposition = 0;
- 
+
   // put your setup code here, to run once:
   pinMode (5, OUTPUT);
   pinMode (A6, INPUT);
@@ -89,7 +119,7 @@ void setup()
     while (1);
   }
 
-  
+
  // This line sets the RTC with an explicit date & time
    // rtc.adjust(DateTime(2019, 3, 13, 14, 59, 35));
 
@@ -132,38 +162,38 @@ void setup()
 
    CreateFilename();
    fopen_time = millis();
-   cycle_init_requested = false; 
-   
+   cycle_init_requested = false;
+
 }
 
-void loop() 
+void loop()
 {
    //RTCTestAndLog();
    //delay(1000);
    //return;
-   
+
   CheckSerial();
-   
+
   if (do_send_sequence)
     DoUplinkSequence();
 
   CheckHourAndDisplay();
 
   ReadKeyboardCmds();
-  
+
   if (dataFile)
     CloseFile();
-  
+
   return;
-           
-   
+
+
 
 }
 
 void CheckHourAndDisplay()
 {
 
- 
+
  if ((millis() - millis_last_check) <= 5000)
  return;
 
@@ -181,7 +211,7 @@ if (dataFile)
   {
      DisplayInfo();
   }
-   
+
   if (timenow.hour() > timebefore.hour())
     if (timenow.hour() == HOUR_START_SEQUENCE)
     {
@@ -191,12 +221,12 @@ if (dataFile)
 
   timebefore = timenow;
   millis_last_check = millis();
-  
+
 }
 
 void DoUplinkSequence()
-{       
-   
+{
+
    if ((millis() - timesent >= sequence_offset_ms)&&(sequence_step != sequence_done_step))
    {
     switch (sequence_step)
@@ -206,14 +236,14 @@ void DoUplinkSequence()
       case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 5")); cycle_init_requested = true;  break;
       case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  DBG (F(">>>>> Sequence PING"));sequence_offset_ms = SEQUENCE_OFFSET_MS_PAUSE; break;
       case SEQUENCE_STEP_PAUSE :  timesent = millis();  DBG (F(">>>>>> Sequence PAUSE")); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
-      
+
     }
     sequence_done_step = sequence_step;
     sequence_step++;
     if (sequence_step > SEQUENCE_LAST_STEP)
       sequence_step = SEQUENCE_FIRST_STEP;
    }
-  
+
 }
 
 
@@ -221,7 +251,7 @@ void PrintBuffer()
 {
    DBG2 (serialbuffer);
    ResetBuffer();
-   
+
 }
 
 
@@ -232,7 +262,7 @@ String zeropad(int input)
     output = "0" + String(input);
     else
     output = input;
-    
+
  return output;
 }
 
@@ -242,14 +272,14 @@ void CheckSerial()
 
   char inchar;
   inchar = Serial.read();
-  
-  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13)) 
-         
+
+  if (((inchar >= 32) && (inchar <= 126)) || (inchar == 10) || (inchar == 13))
+
   {
-      
+
       switch(inchar)
          {
-         case '$' :  
+         case '$' :
                      if (startfound)
                      {
                       //incomplete previous message already in buffer
@@ -258,19 +288,19 @@ void CheckSerial()
                       ResetBuffer();
                       startfound = false;
                      }
-                      
+
                      startfound = true;
                      logtimestamp = timenow; //rtc.now();
                      intobuffer(inchar);
                      break;
-         
-         
+
+
          case '\r':
                   if (startfound)
                     crfound = true;
                     intobuffer(inchar);
                     break;
-           
+
         case '\n':
                     if (startfound && crfound)
                     {
@@ -281,13 +311,13 @@ void CheckSerial()
                     }
                       startfound = false;
                       crfound = false;
-                      
-                      break; 
+
+                      break;
          default:
                     intobuffer(inchar);
-                  
+
          }
-     
+
   }
 }
 
@@ -296,8 +326,7 @@ void CheckSerial()
 
 void CheckCommand()
 {
-  unsigned short command,chks;
- 
+
   const static char s1[] PROGMEM = "CAMUA";
   const static char start_seq[] PROGMEM = "$CAMUA,1,0,1fff";
   const static char stop_seq[]  PROGMEM = "$CAMUA,1,0,0000";
@@ -308,30 +337,37 @@ void CheckCommand()
   const static char freq10000[] PROGMEM = "$CAMUA,1,0,1100";
   const static char freq9000[]   PROGMEM = "$CAMUA,1,0,1900";
   const static char battreq[]   PROGMEM = "$CAMUA,1,0,0bbb";
-   const static char txdatareq[]   PROGMEM = "$CADRQ,";
+  const static char txdatareq[]   PROGMEM = "$CADRQ,";
+  const static char timecommands[]   PROGMEM = "$TIME";
+  const static char showtime[]   PROGMEM = "$TIME,SHOW";
+  const static char sethour[]   PROGMEM = "$TIME,SETHOUR,";
+  const static char setmin[]   PROGMEM = "$TIME,SETMIN,";
+  const static char setsec[]   PROGMEM = "$TIME,SETSEC,";
 
-  
+
+
  if (strstr_P(serialbuffer, s1) && (bufferposition < 25))
  {
+     
      ///////////////
      // MUC COMMANDS
      ///////////////
       DBG3 (F("Received a MUC command"));
-      
+
       if (strstr_P(serialbuffer,start_seq))
       {
-        
-        do_send_sequence = true; 
-        sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; 
+
+        do_send_sequence = true;
+        sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
         sequence_step = SEQUENCE_FIRST_STEP;
         sequence_done_step = SEQUENCE_LAST_STEP;
         timesent = millis();
-        DBG3 (F("command start sequence")); 
+        DBG3 (F("command start sequence"));
       }
       else if (strstr_P(serialbuffer,stop_seq))
       {
         do_send_sequence = false;
-           DBG3 (F("command stop sequence")); 
+           DBG3 (F("command stop sequence"));
       }
       else if (strstr_P(serialbuffer,bw5000))
         SetBandwidthOrFrequency(5000);
@@ -346,19 +382,75 @@ void CheckCommand()
        else if (strstr_P(serialbuffer,freq9000))
         SetBandwidthOrFrequency(9000);
        else if (strstr_P(serialbuffer,battreq))
-        SendBatteryValue();                  
+        SendBatteryValue();
    }
    else if ((strstr_P(serialbuffer, txdatareq) && cycle_init_requested))
    {
-    cycle_init_requested = false;
+     ///////////////
+     // TXDATAREQUEST FROM Modem
+     ///////////////
+
+     cycle_init_requested = false;
     switch (sequence_step - 1)
     {
       case SEQUENCE_STEP_RATE_1 : SendTxData_rate1();  break;
       case SEQUENCE_STEP_RATE_4 : SendTxData_rate4();   break;
-      case SEQUENCE_STEP_RATE_5 : SendTxData_rate5();   break; 
+      case SEQUENCE_STEP_RATE_5 : SendTxData_rate5();   break;
     }
    }
-    
+ else if (strstr_P(serialbuffer, timecommands))
+ {
+     ///////////////
+     // TIME COMMANDS
+     ///////////////
+    timenow = rtc.now();
+    unsigned short received;
+     if (strstr_P(serialbuffer,showtime))
+     {
+         ShowTime();
+
+         //$CCTMS,YYYY-MM-ddTHH:mm:ssZ,mode
+
+         String timeset = "$CCTMS,";
+         timeset += timenow.year();
+         timeset += "-";
+         timeset += zeropad(logtimestamp.month()) ;
+         timeset += "-";
+         timeset += zeropad(logtimestamp.day());
+         timeset += "t";
+         timeset += zeropad(logtimestamp.hour());
+         timeset += ":";
+         timeset += zeropad(logtimestamp.minute());
+         timeset += ":";
+         timeset += zeropad(logtimestamp.second());
+         timeset += "Z,0";
+
+         Serial.println(timeset);
+
+     }
+
+     else if (strstr_P(serialbuffer,sethour))
+     {
+         sscanf(serialbuffer, "$TIME,SETHOUR,%02d", &received);
+         if ((received >= 0) && (received <= 24))
+            rtc.adjust(DateTime(timenow.year(), timenow.month(), timenow.day(), received, timenow.minute(), timenow.second()));
+     }
+     else if (strstr_P(serialbuffer,setmin))
+     {
+         sscanf(serialbuffer, "$TIME,SETMIN,%02d", &received);
+         if ((received >= 0) && (received <= 59))
+             rtc.adjust(DateTime(timenow.year(), timenow.month(), timenow.day(), timenow.hour(), received, timenow.second()));
+     }
+     else if (strstr_P(serialbuffer,setsec))
+     {
+         sscanf(serialbuffer, "$TIME,SETSEC,%02d", &received);
+         if ((received >= 0) && (received <= 59))
+             rtc.adjust(DateTime(timenow.year(), timenow.month(), timenow.day(),  timenow.hour(), timenow.minute(), received));
+     }
+
+ }
+
+
 }
 void SendTxData_rate1()
 {
@@ -367,9 +459,9 @@ void SendTxData_rate1()
     Serial.print(F("$CCTXD,0,1,0,0"));
     else
     Serial.print(F("$CCTXD,0,1,0,"));
-    
+
     Serial.print(battADC);
- 
+
     Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF"));
 }
 
@@ -391,17 +483,17 @@ void SendBatteryValue()
   if (battADC < 1000)
     Serial.print (F("$CCMUC,0,1,0"));
     else
-  Serial.print (F("$CCMUC,0,1,"));  
+  Serial.print (F("$CCMUC,0,1,"));
   Serial.println(battADC);
 }
 
 void SetBandwidthOrFrequency(unsigned short _bw)
 {
-     DBG3 (F("====")); 
+     DBG3 (F("===="));
      DBG3 (F("Setting bandwith to parameter"));
      DBG3 (_bw);
-     DBG3 (F("====")); 
-  
+     DBG3 (F("===="));
+
   switch (_bw)
   {
     case 5000 :    Serial.println(F("$CCCFG,BW0,5000")); break;
@@ -423,52 +515,52 @@ void intobuffer( char _inchar)
             LogBuffer(logtimestamp, true);
          LogBuffer(logtimestamp, false);
          //serialbuffer[bufferposition] = 0x00;
-         
+
         //overflow
          bufferposition = 0;
           }
-        
+
         serialbuffer[bufferposition] =  _inchar;
         bufferposition++;
 
-      
-        
+
+
 }
 
 void Resetbuffer()
 {
   bufferposition = 0;
   startfound = false;
-  crfound = false;  
+  crfound = false;
 }
 
 void CloseFile()
 {
 
   if (millis() - fopen_time >= DELAY_FILE_CLOSE_MS )
-    dataFile.close(); 
+    dataFile.close();
 }
 
 
 
 void LogBuffer(DateTime _timestamp, bool withstamp)
 {
-  
+
   int i;
 
   if (!dataFile)
   {
     dataFile = SD.open(filename, FILE_WRITE);
     fopen_time = millis();
-    
-    DBG (F(" #################   error opening file for writing"));    
+
+    DBG (F(" #################   error opening file for writing"));
     dataFile.println(F("reopen"));
   }
    if (withstamp)
   {
     String timestamp = "";
-  
-    timestamp += _timestamp.year(); 
+
+    timestamp += _timestamp.year();
     timestamp += zeropad(_timestamp.month()) ;
     timestamp += zeropad(_timestamp.day());
     timestamp += "-";
@@ -481,14 +573,14 @@ void LogBuffer(DateTime _timestamp, bool withstamp)
     timestamp += _timestamp.unixtime();
     timestamp += ",";
     dataFile.print(timestamp);
-  }  
+  }
 
- 
+
 
   for (i = 0; i < bufferposition; i++)
   {
     dataFile.print(serialbuffer[i]);
-   
+
   }
 
   serialbuffer[i] = 0x00;
@@ -513,16 +605,16 @@ void CreateFilename()
 {
   logtimestamp= rtc.now();
 
-  String timestamp = "";  
+  String timestamp = "";
   timestamp += zeropad(logtimestamp.month()) ;
   timestamp += zeropad(logtimestamp.day());
-  
+
   timestamp += zeropad(logtimestamp.hour());
-  
+
   timestamp += zeropad(logtimestamp.minute());
 
   timestamp += ".csv";
-  sprintf (filename,"%s", timestamp.c_str());  
+  sprintf (filename,"%s", timestamp.c_str());
 
   INIT  (F("new filename :"));
   INIT  (filename);
@@ -534,12 +626,27 @@ void CreateFilename()
 }
 
 
-
+void ShowTime()
+{
+    Serial.print(timenow.year(), DEC);
+    Serial.print('/');
+    Serial.print(timenow.month(), DEC);
+    Serial.print('/');
+    Serial.print(timenow.day(), DEC);
+    Serial.print(" (");
+    Serial.print(") ");
+    Serial.print(timenow.hour(), DEC);
+    Serial.print(':');
+    Serial.print(timenow.minute(), DEC);
+    Serial.print(':');
+    Serial.print(timenow.second(), DEC);
+    Serial.println();
+}
 
 void RTCTestAndLog()
 {
   DateTime now = rtc.now();
-    
+
     Serial.print(now.year(), DEC);
     Serial.print('/');
     Serial.print(now.month(), DEC);
@@ -558,7 +665,7 @@ void RTCTestAndLog()
 
   String dataString = "";
 
-  dataString += now.year(); 
+  dataString += now.year();
   dataString += zeropad(now.month()) ;
   dataString += zeropad(now.day());
   dataString += "--";
@@ -586,7 +693,7 @@ void RTCTestAndLog()
   dataFile = SD.open("data.txt", FILE_WRITE);
 
   // if the file is available, write to it:
-  if (dataFile) 
+  if (dataFile)
   {
     dataFile.println(dataString);
     dataFile.close();
@@ -607,24 +714,24 @@ void ReadKeyboardCmds()
 {
   #ifdef USE_DBG_SERIAL
     //Check for manual commands
-   if (DBGSerial.available() > 0) 
-   {  
+   if (DBGSerial.available() > 0)
+   {
     DBG (F("keyboard in:"));
-      
+
       char rx_byte = DBGSerial.read();       // get the character
-          
-      
-          
-      switch (rx_byte) 
+
+
+
+      switch (rx_byte)
       {
        case 'I': display_info = !display_info;  break;
-       
+
        case 'X': INIT (F("Received file close command")); dataFile.close();  break;
        case 'O':  INIT (F("Received file open command"));  dataFile = SD.open(filename, FILE_WRITE);  break;
        case 'Q': break;
-            
+
       }
-        
+
      }
   #endif
 }
