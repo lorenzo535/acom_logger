@@ -55,6 +55,8 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_OFFSET_15s 15000
 #define SEQUENCE_OFFSET_10s 10000
 #define SEQUENCE_OFFSET_18s 18000
+#define SEQUENCE_OFFSET_16s 16000
+#define SEQUENCE_OFFSET_19s 19000
 
 #define SEQUENCE_OFFSET_MS_DEFAULT SEQUENCE_OFFSET_18s
 #define SEQUENCE_OFFSET_MS_PAUSE 24000
@@ -446,11 +448,20 @@ void CheckCommand()
            DBG3 (F("command stop sequence"));
       }
       else if (strstr_P(serialbuffer,bw5000))
+      {
         SetBandwidthOrFrequency(5000);
+        sequence_offset_ms_default = SEQUENCE_OFFSET_15s;
+      }
       else if (strstr_P(serialbuffer,bw2500))
+       {
         SetBandwidthOrFrequency(2500);
+        sequence_offset_ms_default = SEQUENCE_OFFSET_16s;
+       }
       else if (strstr_P(serialbuffer,bw1250))
+      {
         SetBandwidthOrFrequency(1250);
+        sequence_offset_ms_default = SEQUENCE_OFFSET_19s;
+      }
       else if (strstr_P(serialbuffer,bw2000))
         SetBandwidthOrFrequency(2000);
       else if (strstr_P(serialbuffer,freq10000))
