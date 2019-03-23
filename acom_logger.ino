@@ -110,6 +110,7 @@ unsigned int bufferposition,oldbufferpos;
 unsigned long timesent, millis_last_check , fopen_time;
 bool  startfound , crfound, do_send_sequence, cycle_init_requested;
 unsigned short sequence_step, sequence_offset_ms, sequence_done_step, sequence_mode, sequence_offset_ms_default;
+unsigned short  msg_count;
 DateTime logtimestamp,timenow,timebefore;
 File dataFile;
 bool display_info;
@@ -167,6 +168,7 @@ void setup()
   sequence_done_step = SEQUENCE_LAST_STEP;
   sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
   sequence_offset_ms_default = SEQUENCE_OFFSET_MS_DEFAULT;
+  msg_count = 0;
 
 
   timebefore = rtc.now();
@@ -421,6 +423,7 @@ void CheckCommand()
          sequence_done_step = SEQUENCE_LAST_STEP;
          timesent = millis();
          DBG3 (F("command start sequence 1 full, 1half, 1 quarter"));
+         msg_count = 0;
       }
       else if (strstr_P(serialbuffer,start_seq_rate1fff))
       {
@@ -431,6 +434,7 @@ void CheckCommand()
          sequence_done_step = SEQUENCE_LAST_STEP;
          timesent = millis();
          DBG3 (F("command start sequence"));
+         msg_count = 0;
       }
 
 
@@ -548,6 +552,7 @@ void SetModemTime (DateTime _now)
 
 void SendTxData_rate1(unsigned short mode)
 {
+    char mybuffer[5];
     unsigned short battADC = analogRead(A6);
     if (battADC < 1000)
     Serial.print(F("$CCTXD,0,1,0,0"));
@@ -555,14 +560,16 @@ void SendTxData_rate1(unsigned short mode)
     Serial.print(F("$CCTXD,0,1,0,"));
 
     Serial.print(battADC);
-
+    sprintf (mybuffer, "%04d",msg_count);
+    Serial.print(mybuffer); 
+    
     switch (mode)
     {
-      case RATE1_FULL_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
-      case RATE1_HALF_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
-      case RATE1_QUARTER_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0F")); break;
+      case RATE1_FULL_FRAME :  Serial.println(F("0405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
+      case RATE1_HALF_FRAME :  Serial.println(F("0405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
+      case RATE1_QUARTER_FRAME :  Serial.println(F("0405060708090A0B0C0D0E0F")); break;
     }
-
+  msg_count = msg_count +1;
 
 
 }
