@@ -31,11 +31,13 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define DBG3 //
 //#define INIT //
 
+//#ifdef CREATE_NEW_FILE_EVERY_HOUR
+
 //########################################
 
 
 //========================================
-#define HOUR_START_SEQUENCE  15
+#define HOUR_STOP_SEQUENCE  19
 //========================================
 
 #define BATTERY_SCALE 0.025715
@@ -50,8 +52,21 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_FIRST_STEP SEQUENCE_STEP_RATE_1
 #define SEQUENCE_LAST_STEP SEQUENCE_STEP_PAUSE
 
-#define SEQUENCE_OFFSET_MS_DEFAULT 18000
+#define SEQUENCE_OFFSET_15s 15000
+#define SEQUENCE_OFFSET_10s 10000
+#define SEQUENCE_OFFSET_18s 18000
+
+#define SEQUENCE_OFFSET_MS_DEFAULT SEQUENCE_OFFSET_18s
 #define SEQUENCE_OFFSET_MS_PAUSE 24000
+
+#define RATE1_FULL_FRAME    0
+#define RATE1_HALF_FRAME     1
+#define RATE1_QUARTER_FRAME    2
+
+#define SEQUENCE_MODE_1f_1h_1q  1
+#define SEQUENCE_MODE_1_4_5     2
+#define SEQUENCE_MODE_1f_1f_1f  3
+
 //---------------------------------------------
 
 
@@ -71,15 +86,12 @@ void ReadKeyboardCmds();
 void ResetBuffer();
 void RTCTestAndLog();
 void SendBatteryValue();
-void SendTxData_rate1();
+void SendTxData_rate1(unsigned short frame_type);
 void SendTxData_rate4();
 void SendTxData_rate5();
 void SetBandwidthOrFrequency(unsigned short _bw);
 void ShowTime();
-
-
-
-
+void SetModemTime (DateTime _time);
 
 
 //---------------------------------------------
@@ -97,7 +109,7 @@ char serialbuffer[BUFFER_SIZE];
 unsigned int bufferposition,oldbufferpos;
 unsigned long timesent, millis_last_check , fopen_time;
 bool  startfound , crfound, do_send_sequence, cycle_init_requested;
-unsigned short sequence_step, sequence_offset_ms, sequence_done_step;
+unsigned short sequence_step, sequence_offset_ms, sequence_done_step, sequence_mode, sequence_offset_ms_default;
 DateTime logtimestamp,timenow,timebefore;
 File dataFile;
 bool display_info;
@@ -154,8 +166,9 @@ void setup()
   sequence_step = SEQUENCE_FIRST_STEP;
   sequence_done_step = SEQUENCE_LAST_STEP;
   sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
+  sequence_offset_ms_default = SEQUENCE_OFFSET_MS_DEFAULT;
 
-  Serial.println(F("$CCCFQ,ALL"));
+
   timebefore = rtc.now();
   display_info = false;
 
@@ -163,6 +176,13 @@ void setup()
    CreateFilename();
    fopen_time = millis();
    cycle_init_requested = false;
+
+   //Little delay for modem to boot up
+   delay (2000);
+   // set modem time on arduino time
+   SetModemTime(timebefore);
+   // Ask configuration
+   Serial.println(F("$CCCFQ,ALL"));
 
 }
 
@@ -213,11 +233,21 @@ if (dataFile)
   }
 
   if (timenow.hour() > timebefore.hour())
-    if (timenow.hour() == HOUR_START_SEQUENCE)
+  {
+    if (timenow.hour() == HOUR_STOP_SEQUENCE)
     {
-      do_send_sequence = true;
-      DBG3 (F("hour check has started sequence"));
+      do_send_sequence = false;
+      DBG3 (F("hour check has stopped sequence"));
     }
+
+  //create a new filename
+#ifdef CREATE_NEW_FILE_EVERY_HOUR
+  if (dataFile)
+   dataFile.close();
+
+  CreateFilename();
+#endif
+  }
 
   timebefore = timenow;
   millis_last_check = millis();
@@ -231,11 +261,27 @@ void DoUplinkSequence()
    {
     switch (sequence_step)
     {
-      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1")); cycle_init_requested = true; break;
-      case SEQUENCE_STEP_RATE_4 : Serial.println(F("$CCCYC,0,0,1,4,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 4")); cycle_init_requested = true;  break;
-      case SEQUENCE_STEP_RATE_5 : Serial.println(F("$CCCYC,0,0,1,5,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 5")); cycle_init_requested = true;  break;
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1")); cycle_init_requested = true; sequence_offset_ms = sequence_offset_ms_default; break;
+
+      case SEQUENCE_STEP_RATE_4 :  if ( (sequence_mode == SEQUENCE_MODE_1f_1h_1q) || (sequence_mode == SEQUENCE_MODE_1f_1f_1f))
+                                          Serial.println(F("$CCCYC,0,0,1,1,0,1"));
+                                   if (sequence_mode == SEQUENCE_MODE_1_4_5)
+                                          Serial.println(F("$CCCYC,0,0,1,4,0,1"));
+                                   timesent = millis();
+                                   DBG (F(">>>>>> Sequence rate 4"));
+                                   cycle_init_requested = true;
+                                   break;
+
+      case SEQUENCE_STEP_RATE_5 :    if ( (sequence_mode == SEQUENCE_MODE_1f_1h_1q) || (sequence_mode == SEQUENCE_MODE_1f_1f_1f))
+                                      Serial.println(F("$CCCYC,0,0,1,1,0,1"));
+                                    if (sequence_mode == SEQUENCE_MODE_1_4_5)
+                                      Serial.println(F("$CCCYC,0,0,1,5,0,1"));
+                                    timesent = millis(); DBG (F(">>>>>> Sequence rate 5"));
+                                    cycle_init_requested = true;
+                                    break;
+
       case SEQUENCE_STEP_PING : Serial.println(F("$CCMPC,0,1")); timesent = millis();  DBG (F(">>>>> Sequence PING"));sequence_offset_ms = SEQUENCE_OFFSET_MS_PAUSE; break;
-      case SEQUENCE_STEP_PAUSE :  timesent = millis();  DBG (F(">>>>>> Sequence PAUSE")); sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT; break;
+      case SEQUENCE_STEP_PAUSE :  timesent = millis();  DBG (F(">>>>>> Sequence PAUSE")); sequence_offset_ms = 1000; break;
 
     }
     sequence_done_step = sequence_step;
@@ -315,9 +361,7 @@ void CheckSerial()
                       break;
          default:
                     intobuffer(inchar);
-
          }
-
   }
 }
 
@@ -328,7 +372,9 @@ void CheckCommand()
 {
 
   const static char s1[] PROGMEM = "CAMUA";
-  const static char start_seq[] PROGMEM = "$CAMUA,1,0,1fff";
+  const static char start_seq[] PROGMEM = "$CAMUA,1,0,1450";
+  const static char start_seq_rate1fhq[] PROGMEM = "$CAMUA,1,0,1111";
+  const static char start_seq_rate1fff[] PROGMEM = "$CAMUA,1,0,1fff";
   const static char stop_seq[]  PROGMEM = "$CAMUA,1,0,0000";
   const static char bw5000[]    PROGMEM = "$CAMUA,1,0,0500";
   const static char bw2500[]    PROGMEM = "$CAMUA,1,0,0250";
@@ -339,6 +385,7 @@ void CheckCommand()
   const static char battreq[]   PROGMEM = "$CAMUA,1,0,0bbb";
   const static char txdatareq[]   PROGMEM = "$CADRQ,";
   const static char timecommands[]   PROGMEM = "$TIME";
+  const static char battery[]   PROGMEM = "$BATT";
   const static char showtime[]   PROGMEM = "$TIME,SHOW";
   const static char sethour[]   PROGMEM = "$TIME,SETHOUR,";
   const static char setmin[]   PROGMEM = "$TIME,SETMIN,";
@@ -348,7 +395,7 @@ void CheckCommand()
 
  if (strstr_P(serialbuffer, s1) && (bufferposition < 25))
  {
-     
+
      ///////////////
      // MUC COMMANDS
      ///////////////
@@ -358,12 +405,35 @@ void CheckCommand()
       {
 
         do_send_sequence = true;
-        sequence_offset_ms = SEQUENCE_OFFSET_MS_DEFAULT;
+        sequence_mode = SEQUENCE_MODE_1_4_5;
+        sequence_offset_ms_default = SEQUENCE_OFFSET_18s;
         sequence_step = SEQUENCE_FIRST_STEP;
         sequence_done_step = SEQUENCE_LAST_STEP;
         timesent = millis();
         DBG3 (F("command start sequence"));
       }
+      else if (strstr_P(serialbuffer,start_seq_rate1fhq))
+      {
+         do_send_sequence = true;
+         sequence_mode = SEQUENCE_MODE_1f_1h_1q;
+         sequence_offset_ms_default = SEQUENCE_OFFSET_15s;
+         sequence_step = SEQUENCE_FIRST_STEP;
+         sequence_done_step = SEQUENCE_LAST_STEP;
+         timesent = millis();
+         DBG3 (F("command start sequence 1 full, 1half, 1 quarter"));
+      }
+      else if (strstr_P(serialbuffer,start_seq_rate1fff))
+      {
+         do_send_sequence = true;
+         sequence_mode = SEQUENCE_MODE_1f_1f_1f;
+         sequence_offset_ms_default = SEQUENCE_OFFSET_15s;
+         sequence_step = SEQUENCE_FIRST_STEP;
+         sequence_done_step = SEQUENCE_LAST_STEP;
+         timesent = millis();
+         DBG3 (F("command start sequence"));
+      }
+
+
       else if (strstr_P(serialbuffer,stop_seq))
       {
         do_send_sequence = false;
@@ -393,9 +463,23 @@ void CheckCommand()
      cycle_init_requested = false;
     switch (sequence_step - 1)
     {
-      case SEQUENCE_STEP_RATE_1 : SendTxData_rate1();  break;
-      case SEQUENCE_STEP_RATE_4 : SendTxData_rate4();   break;
-      case SEQUENCE_STEP_RATE_5 : SendTxData_rate5();   break;
+      case SEQUENCE_STEP_RATE_1 : SendTxData_rate1(RATE1_FULL_FRAME);  break;
+      case SEQUENCE_STEP_RATE_4 :
+                                  if (sequence_mode == SEQUENCE_MODE_1f_1h_1q)
+                                      SendTxData_rate1(RATE1_HALF_FRAME);
+                                  if (sequence_mode == SEQUENCE_MODE_1f_1f_1f)
+                                      SendTxData_rate1(RATE1_FULL_FRAME);
+                                  if (sequence_mode == SEQUENCE_MODE_1_4_5)
+                                       SendTxData_rate4();
+                                       break;
+
+      case SEQUENCE_STEP_RATE_5 : if (sequence_mode == SEQUENCE_MODE_1f_1h_1q)
+                                      SendTxData_rate1(RATE1_QUARTER_FRAME);
+                                  if (sequence_mode == SEQUENCE_MODE_1f_1f_1f)
+                                      SendTxData_rate1(RATE1_FULL_FRAME);
+                                   if (sequence_mode == SEQUENCE_MODE_1_4_5)
+                                      SendTxData_rate5();
+                                      break;
     }
    }
  else if (strstr_P(serialbuffer, timecommands))
@@ -409,23 +493,7 @@ void CheckCommand()
      {
          ShowTime();
 
-         //$CCTMS,YYYY-MM-ddTHH:mm:ssZ,mode
-
-         String timeset = "$CCTMS,";
-         timeset += timenow.year();
-         timeset += "-";
-         timeset += zeropad(logtimestamp.month()) ;
-         timeset += "-";
-         timeset += zeropad(logtimestamp.day());
-         timeset += "t";
-         timeset += zeropad(logtimestamp.hour());
-         timeset += ":";
-         timeset += zeropad(logtimestamp.minute());
-         timeset += ":";
-         timeset += zeropad(logtimestamp.second());
-         timeset += "Z,0";
-
-         Serial.println(timeset);
+         SetModemTime(timenow);
 
      }
 
@@ -448,11 +516,37 @@ void CheckCommand()
              rtc.adjust(DateTime(timenow.year(), timenow.month(), timenow.day(),  timenow.hour(), timenow.minute(), received));
      }
 
+ }else if (strstr_P(serialbuffer, battery))
+ {
+  Serial.println(analogRead(A6));
  }
 
-
 }
-void SendTxData_rate1()
+
+void SetModemTime (DateTime _now)
+{
+   //$CCTMS,YYYY-MM-ddTHH:mm:ssZ,mode
+
+     String timeset = "$CCTMS,";
+     timeset += _now.year();
+     timeset += "-";
+     timeset += zeropad(_now.month()) ;
+     timeset += "-";
+     timeset += zeropad(_now.day());
+     timeset += "T";
+     timeset += zeropad(_now.hour());
+     timeset += ":";
+     timeset += zeropad(_now.minute());
+     timeset += ":";
+     timeset += zeropad(_now.second());
+     timeset += "Z,0";
+
+     Serial.println(timeset);
+}
+
+
+
+void SendTxData_rate1(unsigned short mode)
 {
     unsigned short battADC = analogRead(A6);
     if (battADC < 1000)
@@ -462,8 +556,18 @@ void SendTxData_rate1()
 
     Serial.print(battADC);
 
-    Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF"));
+    switch (mode)
+    {
+      case RATE1_FULL_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF000102030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
+      case RATE1_HALF_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0FA55AFFEEDDCCBBAA90807060504055AF")); break;
+      case RATE1_QUARTER_FRAME :  Serial.println(F("02030405060708090A0B0C0D0E0F")); break;
+    }
+
+
+
 }
+
+
 
 void SendTxData_rate4()
 {
@@ -622,7 +726,7 @@ void CreateFilename()
 
 
   //Open file by default:
-   dataFile = SD.open(filename, FILE_WRITE);
+  // dataFile = SD.open(filename, FILE_WRITE);
 }
 
 
