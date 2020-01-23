@@ -57,6 +57,7 @@ SoftwareSerial DBGSerial(2, 3); // RX, TX
 #define SEQUENCE_OFFSET_18s 18000
 #define SEQUENCE_OFFSET_16s 16000
 #define SEQUENCE_OFFSET_19s 19000
+#define OFFSET_RATE_4 4000
 
 #define SEQUENCE_OFFSET_MS_DEFAULT SEQUENCE_OFFSET_18s
 #define SEQUENCE_OFFSET_MS_PAUSE 24000
@@ -266,7 +267,13 @@ void DoUplinkSequence()
    {
     switch (sequence_step)
     {
-      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); timesent = millis(); DBG (F(">>>>>> Sequence rate 1")); cycle_init_requested = true; sequence_offset_ms = sequence_offset_ms_default; break;
+      case SEQUENCE_STEP_RATE_1 : Serial.println(F("$CCCYC,0,0,1,1,0,1")); 
+				timesent = millis(); DBG (F(">>>>>> Sequence rate 1")); 
+				cycle_init_requested = true; 
+				sequence_offset_ms = sequence_offset_ms_default;  
+				if (sequence_mode == SEQUENCE_MODE_1_4_5)
+ 					sequence_offset_ms += OFFSET_RATE_4;
+				break;
 
       case SEQUENCE_STEP_RATE_4 :  if ( (sequence_mode == SEQUENCE_MODE_1f_1h_1q) || (sequence_mode == SEQUENCE_MODE_1f_1f_1f))
                                           Serial.println(F("$CCCYC,0,0,1,1,0,1"));
@@ -274,6 +281,8 @@ void DoUplinkSequence()
                                           Serial.println(F("$CCCYC,0,0,1,4,0,1"));
                                    timesent = millis();
                                    DBG (F(">>>>>> Sequence rate 4"));
+				   if (sequence_mode == SEQUENCE_MODE_1_4_5)
+ 					sequence_offset_ms -= OFFSET_RATE_4;
                                    cycle_init_requested = true;
                                    break;
 
